@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>ClickHouse OpenSource community</title>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="shower/themes/yandex/styles/screen-16x9.css">
+
+    <style type="text/css">
+        code { display: block; white-space: pre; background-color: #EEE; }
+        p.cloud { text-align: center; line-height: 1.5; }
+        p.cloud span { font-size: 13pt; color: gray; padding: 0 20px 0 20px; white-space: nowrap; }
+   </style>
+</head>
+<body class="shower list">
+    <header class="caption">
+        <h1>ClickHouse OpenSource community</h1>
+    </header>
+
+    <section class="slide" id="cover">
+        <h1 style="margin-top: 150px;">Analyzer. Planner. Optimizer</h1>
+    </section>
+
+    <section class="slide">
+        <h2>Plan</h2>
+        <p>1. Problems.</p>
+        <p>2. High Level Architecture.</p>
+        <p>3. Analyzer.</p>
+        <p>4. Planner.</p>
+        <p>5. Optimizer.</p>
+        <p>6. Next steps.</p>
+    </section>
+
+    <section class="slide" id="cover">
+        <h1 style="margin-top: 150px;">Problems</h1>
+    </section>
+
+    <section class="slide">
+        <h2>Problems</h2>
+
+        <p>There are no specification for ClickHouse query language and its extensions.</p>
+
+        <p>Aliases:</p>
+        <code>SELECT b AS c, c, 1 AS a, a AS b;</code>
+        <p>Lambdas:</p>
+        <code>WITH x -> x + 1 AS lambda SELECT lambda(1);</code>
+        <code>SELECT arrayMap(x -> x + 1, [1,2,3]);</code>
+        <p>ArrayJoin. Matchers. Column Transformers. Table ALIAS columns.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Problems</h2>
+
+        <p>Complex internal logic based on AST rewriting. No natural support for scoping, aliases, lambdas.</p>
+
+        <p>1. Distributed.</p>
+        <p>2. JOINS.</p>
+        <p>3. AST optimizations.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Problems</h2>
+
+        <p>JOINs support is incomplete.</p>
+
+        <p>1. Multiple JOINs are rewritten into subqueries. These lead to name clashing, missing aliases.</p>
+        <p>2. ClickHouse does not know that JOIN actually exists.</p>
+        <p>3. Indexes does not work for JOINs (KeyCondition, Skipping Indexes).</p>
+        <p>4. Push down predicate does not work in a lot of times.</p>
+        <p>6. FINAL, SAMPLE BY does not work for JOINs.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Problems</h2>
+
+        <p>No clean separation between query Analysis, Planning, Optimization phases.</p>
+
+        <p>1. We make AST optimizations, optimizations during DAG construction, optimizations on query plan, optimization during query plan build.</p>
+        <p>2. No separation between projection names, names in logs, execution names. AST column name does not work.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Problems</h2>
+
+        <p>Additional problems</p>
+
+        <p>1. Low test coverage for edge cases. In almost any feature there are crashes, invalid behaviour. Fuzzer should catch that.</p>
+        <p>2. We do not our architecture, abstractions and infrastructure around them. That lead to unnecessary conditions.</p>
+        <p>3. No documentation.</p>
+        <p>4. Our architecture is slow. When we run AST visitors on query, rewrite JOINs it does not scale to big queries.</p>
+        <p>5. Low tests coverage for big queries.</p>
+    </section>
+
+    <section class="slide" id="cover">
+        <h1 style="margin-top: 150px;">High Level Architecture</h1>
+    </section>
+
+    <section class="slide">
+        <h2>High Level Architecture</h2>
+
+        <p>1. Analysis infrastructure is responsible for query analysis stage. Input is AST output is QueryTree.</p>
+        <p>2. Planner is responsible for query planning. Input is QueryTree output is QueryPlan.</p>
+        <p>3. Most optimizations are done on query plan level. Input is QueryPlan output is QueryPipeline.</p>
+    </section>
+
+    <section class="slide" id="cover">
+        <h1 style="margin-top: 150px;">Analyzer</h1>
+    </section>
+
+    <section class="slide">
+        <h2>Query Analysis</h2>
+
+        <p>Query Tree data structure</p>
+        <p>1. Interface between Analyzer and Planner</p>
+        <p>2. Build from AST (QueryTreeBuilder) can be converted back to valid AST.</p>
+        <p>3. Contains semantic information about the query.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Query Analysis</h2>
+
+        <p>Query Tree has following nodes:</p>
+        <p>1. Identifier.</p>
+        <p>2. Matchers (Asterisk, COLUMNS)</p>
+        <p>3. Constants</p>
+        <p>4. Functions. Lambdas.</p>
+        <p>5. Table Expressions (Query, Union, Table, Table Function)</p>
+        <p>6. Columns. Each column contain pointer its source (Lambda, Table expression).</p>
+    </section>
+
+    <section class="slide">
+        <h2>Query Analysis</h2>
+
+        <p>Infrastructure is build around passes (IQueryTreePass). Inspired by LLVM.</p>
+        <p>QueryAnalysis is first and the most important pass.</p>
+        <p>We should create new passes only if optimization or feature is impossible or inconvenient to implement on top of query plan.</p>
+        <p>Example of good passes are predicate rewrite, some aggregate functions optimizations.</p>
+        <p>Introspection is done with <b>EXPLAIN QUERY TREE</b> system query</p>
+    </section>
+
+    <section class="slide">
+        <h2>Query Analysis Pass</h2>
+
+        <p>Query analysis pass is responsible for query analysis and validation.</p>
+        <p>All identifier and matcher nodes are resolved.</p>
+        <p>All functions, lambdas are resolved. Constant folding is performed.</p>
+        <p>All subqueries are resolved. Constant folding is performed if needed.</p>
+        <p>Projection columns are calculated for Query node.</p>
+        <p>Query is validated.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Example Query Analysis Pass</h2>
+
+        <p>EXPLAIN QUERY TREE SELECT id, value FROM test_table;</p>
+
+        <code style="font-size: 12pt;">┌─explain──────────────────────────────────────┐
+│ QUERY id: 0                                  │
+│   PROJECTION                                 │
+│     LIST id: 1, nodes: 2                     │
+│       IDENTIFIER id: 2, identifier: id       │
+│       IDENTIFIER id: 3, identifier: value    │
+│   JOIN TREE                                  │
+│     IDENTIFIER id: 4, identifier: test_table │
+└──────────────────────────────────────────────┘
+        </code>
+    </section>
+
+    <section class="slide">
+        <h2>Example Query Analysis Pass</h2>
+        <p>EXPLAIN QUERY TREE run_passes = 1 SELECT id, value FROM test_table;</p>
+
+        <code style="font-size: 12pt;">┌─explain───────────────────────────────────────────────────────────────────┐
+│ QUERY id: 0                                                               │
+│   <b>PROJECTION COLUMNS</b>                                                      │
+│     id UInt64                                                             │
+│     value String                                                          │
+│   PROJECTION                                                              │
+│     LIST id: 1, nodes: 2                                                  │
+│       COLUMN id: 2, column_name: id, result_type: UInt64, <b>source_id: 3</b>    │
+│       COLUMN id: 4, column_name: value, result_type: String, <b>source_id: 3</b> │
+│   JOIN TREE                                                               │
+│     TABLE <b>id: 3</b>, table_name: default.test_table                           │
+└───────────────────────────────────────────────────────────────────────────┘
+        </code>
+    </section>
+
+
+    <section class="slide">
+        <h2>Example Query Analysis Pass</h2>
+        <p>EXPLAIN QUERY TREE run_passes = 1, <b>dump_ast = 1</b> SELECT id, value FROM test_table;</p>
+
+    <code style="font-size: 12pt;">┌─explain───────────────────────────────────────────────────────────────────┐
+│ QUERY id: 0                                                               │
+│   PROJECTION COLUMNS                                                      │
+│     id UInt64                                                             │
+│     value String                                                          │
+│   PROJECTION                                                              │
+│     LIST id: 1, nodes: 2                                                  │
+│       COLUMN id: 2, column_name: id, result_type: UInt64, source_id: 3    │
+│       COLUMN id: 4, column_name: value, result_type: String, source_id: 3 │
+│   JOIN TREE                                                               │
+│     TABLE id: 3, table_name: default.test_table                           │
+│                                                                           │
+│ SELECT                                                                    │
+│     id,                                                                   │
+│     value                                                                 │
+│ FROM default.test_table                                                   │
+└───────────────────────────────────────────────────────────────────────────┘
+        </code>
+    </section>
+
+    <section class="slide">
+        <h2>Example Query Analysis Pass</h2>
+        <p>EXPLAIN QUERY TREE run_passes = 1, passes = 1, dump_passes = 1</b> SELECT id, value FROM test_table;</p>
+
+        <code style="font-size: 12pt;">┌─explain───────────────────────────────────────────────────────────────────┐
+│ Pass 1 QueryAnalysis - Resolve type for each query expression ...         │
+│ Pass 2 ...                                                                |
+│                                                                           │
+│ QUERY id: 0                                                               │
+│   PROJECTION COLUMNS                                                      │
+│     id UInt64                                                             │
+│     value String                                                          │
+│   PROJECTION                                                              │
+│     LIST id: 1, nodes: 2                                                  │
+│       COLUMN id: 2, column_name: id, result_type: UInt64, source_id: 3    │
+│       COLUMN id: 4, column_name: value, result_type: String, source_id: 3 │
+│   JOIN TREE                                                               │
+│     TABLE id: 3, table_name: default.test_table                           │
+└───────────────────────────────────────────────────────────────────────────┘
+        </code>
+    </section>
+
+    <section class="slide">
+        <h2>Example Query Analysis Pass</h2>
+
+        <p>EXPLAIN QUERY TREE run_passes = 1 SELECT arrayMap(x -> x, [1]) FROM test_table;</p>
+
+        <code style="font-size: 10pt;">┌─explain───────────────────────────────────────────────────────────────────────────────────────────┐
+│ QUERY id: 0                                                                                       │
+│   PROJECTION COLUMNS                                                                              │
+│     arrayMap(lambda(tuple(x), x), [1]) Array(UInt8)                                               │
+│   PROJECTION                                                                                      │
+│     LIST id: 1, nodes: 1                                                                          │
+│       FUNCTION id: 2, function_name: arrayMap, function_type: ordinary, result_type: Array(UInt8) │
+│         ARGUMENTS                                                                                 │
+│           LIST id: 3, nodes: 2                                                                    │
+│             <b>LAMBDA id: 4</b>                                                                          │
+│               ARGUMENTS                                                                           │
+│                 LIST id: 5, nodes: 1                                                              │
+│                   COLUMN id: 6, column_name: x, result_type: UInt8, source_id: 4                  │
+│               EXPRESSION                                                                          │
+│                 COLUMN id: 6, column_name: x, result_type: UInt8, <b>source_id: 4</b>                    │
+│             CONSTANT id: 7, constant_value: Array_[UInt64_1], constant_value_type: Array(UInt8)   │
+│   JOIN TREE                                                                                       │
+│     TABLE id: 8, table_name: default.test_table                                                   │
+└───────────────────────────────────────────────────────────────────────────────────────────────────┘
+        </code>
+    </section>
+
+    <section class="slide" id="cover">
+        <h1 style="margin-top: 150px;">Planner</h1>
+    </section>
+
+    <section class="slide">
+        <h2>Query Planning</h2>
+
+        <p>Planning steps:</p>
+        <p>1. Collect table expression data. For each table expression information about columns that must be read,
+            and mapping from column to unique identifier is performed.</p>
+        <p>2. Prepare sets for special <b>IN</b> function and its variations.</p>
+        <p>3. Build query plan for <b>JOIN TREE</b> part of query.</p>
+        <p>4. Build expression actions chain, and finalize it. This steps allows to not recompute already evaluated expressions.
+            Need to move it to query plan optimizations</p>
+        <p>5. Build other steps of query plan. (Sorting, Aggregation, Window functions).</p>
+    </section>
+
+    <section class="slide">
+        <h2>Query Planning</h2>
+
+        <p>All stages are fully documented. No hidden dependencies between steps.</p>
+        <p>Multiple ARRAY JOINS are supported.</p>
+        <p>Multiple JOINS are supported without rewriting them to subqueries.</p>
+        <p>SAMPLE BY, FINAL, Indexes are supported for JOINS.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Query Planning</h2>
+
+        <p>DAG is used as internal data structure.</p>
+        <p>DAG creation from query tree is simple and fast.</p>
+        <p>DAG is compact, lightweight, and allow to use it for indexes and low-level optimizations (Constnats and prepared sets are part of DAG).</p>
+    </section>
+
+    <section class="slide">
+        <h2>Query Planning Column Identifiers</h2>
+
+        <p>EXPLAIN header = 1, actions = 1, optimize = 0 (SELECT id, value FROM test_table_join_1) SETTINGS use_analyzer = 1;</p>
+        <code style="font-size: 14pt;">Expression (Change column names to column identifiers)
+Header:
+    default.test_table_join_1.value_1 String
+    default.test_table_join_1.id_0 UInt64
+
+Actions: INPUT : 0 -> value String : 0
+         INPUT : 1 -> id UInt64 : 1
+         ALIAS value :: 0 -> <b>default.test_table_join_1.value_1</b> String : 2
+         ALIAS id :: 1 -> <b>default.test_table_join_1.id_0</b> UInt64 : 0
+</code>
+    </section>
+
+    <section class="slide">
+        <h2>Query Planning Column Identifiers</h2>
+
+        <p>Column identifier can be:
+        <p>1. table_expression_alias.column_name (For table, table function, query, union table expression if alias specified).</p>
+        <p>2. database_name.table_name.column_name (For table table expression).</p>
+        <p>3. column_name (Can be case for subquery without alias)</p>
+        <p>In all cases additionally <b>_(column_number)</b> suffix is added to guarantee column unique identification.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Query Planning Execution Name</h2>
+
+        <p>Execution name is concept of column name during execution stage</p>
+        <p>1. For constant it is string representation of constant value and constant type.</p>
+        <p>2. For column it is unique identifier.</p>
+        <p>3. For function function_name(parameters_execution_names)(arguments_execution_names).</p>
+        <p>4. For lambda it is SipHash.</p>
+        <p>5. For subquery it is SipHash.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Query Planning Index Analysis</h2>
+
+        <p>ActionsDAG is used for all indexes analysis (KeyCondition, Skipping Indexes). Interfaces are refactored.</p>
+        <p>Index analysis component has interface where INPUT is predicate expression dag, key expression dag, OUTPUT is stack of RPN elements.</p>
+        <p>We convert names of columns in index key expression, to execution names (If column from index is not used we do not convert it, index will not work as expected).</p>
+        <p>KeyCondition, Skiping Indexes work for JOINs almost without any modifications.</p>
+    </section>
+
+    <section class="slide" id="cover">
+        <h1 style="margin-top: 150px;">Next steps</h1>
+    </section>
+
+    <section class="slide">
+        <h2>Next steps</h2>
+
+        <p>Analyzer is finished</p>
+        <p>Planner requires to finish:</p>
+        <p>1. Distributed</p>
+        <p>2. Projections</p>
+        <p>3. RBAC, and some small performance optimizations.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Next steps</h2>
+
+        <p>Current part will be merged soon.</p>
+        <p>Part that enables new infrastructure by default will be merged next.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Next steps</h2>
+
+        <p>After that we will try to simplify our query plan to allow more optimizations on top of it. We are most interested in:</p>
+
+        <p>1. JOINS reordering. JOIN algorithm choose. Requires at least basic statistics (unique elements).</p>
+        <p>2. READ in order optimizations based on query plan.</p>
+        <p>3. Remove actions chain and implement it on top of query plan.</p>
+        <p>4. Even better indexes support (Now we have issues).</p>
+
+        <p>Currently query plan does not allow such optimizations. Main problem are that input and output are fixed, and some steps in plan are not logical (ReadFromMergeTree).</p>
+        <p>We need representation of query plan with relational operators. That will allow to add more optimizations.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Questions?</h2>
+    </section>
+
+    <div class="progress"></div>
+    <script src="shower/shower.min.js"></script>
+
+    <!--Video plugin-->
+    <link rel="stylesheet" href="shower/shower-video.css">
+    <script src="shower/shower-video.js"></script>
+    <!--/Video plugin-->
+</body>
+</html>
