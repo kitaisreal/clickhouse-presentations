@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>YDB AARCH64 Performance Optimizations</title>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="shower/themes/yandex/styles/screen-16x9.css">
+
+    <style type="text/css">
+        code { display: block; white-space: pre; background-color: #EEE; }
+        p.cloud { text-align: center; line-height: 1.5; }
+        p.cloud span { font-size: 13pt; color: gray; padding: 0 20px 0 20px; white-space: nowrap; }
+   </style>
+</head>
+<body class="shower list">
+    <header class="caption">
+        <h1>YDB AARCH64 Performance Optimizations</h1>
+    </header>
+
+    <section class="slide" id="cover">
+        <h1 style="margin-top: 150px;">YDB AARCH64 Performance Optimizations</h1>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 optimization problems</h2>
+
+        <p>Main infrastructure problems:</p>
+
+        <p>1. Low-level libraries does not always have AARCH64 support.</p>
+        <p>2. Low-level libraries are not optimized. Example: compression/decompression libraries (lz4, zstd), hashes, etc.</p>
+        <p>3. Tools are not optimized (objdump, perf).</p>
+        <p>4. Compilers generate less efficient code (gcc, clang). AARCH64 backends have less platform specific optimizations.</p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 optimization problems</h2>
+
+        <p>Main implementation problems:</p>
+
+        <p>1. Different costs (virtual function call, atomics, read/write unaligned memory, etc.)</p>
+        <p>2. Neon is not SSE4.2, AVX2, AVX512. Example: No <b>pmovmskb</b> instruction. Libraries that convert Neon to X86-64 SIMD are
+            not efficient.</p>
+        <p>3. A lot of platform dependend code (X86-64).</p>
+
+        <a href="https://github.com/aws/aws-graviton-getting-started/blob/main/perfrunbook/graviton_perfrunbook.md">https://github.com/aws/aws-graviton-getting-started/blob/main/perfrunbook/graviton_perfrunbook.md</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 CRC32 library</h2>
+
+        <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits_5m;</code>
+        <p></p>
+        <p>Perf top output:</p>
+        <code style="font-size: 10pt;">Samples: 1M of event 'cycles:P', 4000 Hz, Event count (approx.): 165205540299 lost: 0/0 drop: 0/588582
+Overhead  Shared Object            Symbol
+  <b>29,19%  ydbd                     [.] crcutil_interface::Implementation&lt;crcutil::GenericCrc></b>
+   9,03%  ydbd                     [.] ChaCha::Encipher
+   6,20%  ydbd                     [.] NActors::TExecutorThreadStats::Aggregate
+   2,79%  [kernel]                 [k] __arch_copy_to_user
+   2,66%  ydbd                     [.] t1ha1_le
+   2,07%  [kernel]                 [k] finish_task_switch
+   2,00%  [kernel]                 [k] __arch_copy_from_user
+   1,75%  ydbd                     [.] NActors::TBasicExecutorPool::GoToSpin
+   1,48%  ydbd                     [.] NKikimr::NTable::NPage::TDataPageRecord
+   1,46%  ydbd                     [.] TTcpPacketOutTask::Finish
+   1,23%  ydbd                     [.] XXH_INLINE_XXH3_64bits_update
+   0,96%  [kernel]                 [k] try_to_wake_up
+   0,68%  libc.so.6                [.] 0x0000000000098fc0
+   0,65%  ydbd                     [.] NActors::TBasicExecutorPool::GetReadyActivation
+   0,58%  libc.so.6                [.] 0x0000000000098fcc
+   0,57%  libc.so.6                [.] 0x0000000000098fbc
+   0,52%  libc.so.6                [.] 0x0000000000098fc4
+        </code>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 CRC32 library</h2>
+
+        <img style="width: 100%;" src="pictures/crc32_flamegraph_before.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 CRC library</h2>
+
+        <p>Problem was invalid architecture dispatch inside CRC library.</p>
+        <p>For AARCH64 CRC library dispatched into the most inneficient implementation.</p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 CRC library after fix</h2>
+
+        <p>Perf top output:</p>
+
+        <code style="font-size: 10pt;">Samples: 801K of event 'cycles:P', 4000 Hz, Event count (approx.): 109659260334 lost: 0/0 drop: 0/569470
+Overhead  Shared Object            Symbol
+  11,40%  ydbd                 [.] ChaCha::Encipher
+   8,15%  ydbd                 [.] NActors::TExecutorThreadStats::Aggregate
+   <b>5,10%  ydbd                 [.] crcutil::GenericCrc</b>
+   2,82%  [kernel]             [k] __arch_copy_to_user
+   2,68%  ydbd                 [.] NKikimr::NTable::NPage::TDataPageRecord
+   2,36%  ydbd                 [.] t1ha1_le
+   2,26%  [kernel]             [k] finish_task_switch
+   2,00%  ydbd                 [.] NActors::TBasicExecutorPool::GoToSpin
+   1,75%  ydbd                 [.] TTcpPacketOutTask::Finish
+   1,56%  ydbd                 [.] XXH_INLINE_XXH3_64bits_update
+   1,39%  [kernel]             [k] __arch_copy_from_user
+   1,28%  libc.so.6            [.] 0x0000000000098fc0
+   1,24%  ydbd                 [.] NKikimr::NTable::TPartSimpleIt::Apply
+   1,23%  ydbd                 [.] NKikimr::TPinnedPageRef::TPinnedPageRef
+   1,13%  perf                 [.] rb_next
+   1,03%  [kernel]             [k] try_to_wake_up
+   0,98%  libc.so.6            [.] 0x0000000000098fbc
+   0,98%  ydbd                 [.] NActors::TBasicExecutorPool::GetReadyActivation
+    </code>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 CRC library after fix</h2>
+
+        <img style="width: 100%; height: auto;" src="pictures/crc32_flamegraph_after.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 CRC library after fix</h2>
+
+        <p>For queries after fix there is 10% - 20% performance improvement:</p>
+        <p>Before:</p>
+        <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits_5m; median 12560.67</code>
+        <p></p>
+        <p>After:</p>
+        <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits_5m; median 11329.278</code>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 Benchmark</h2>
+
+        <p>ClickBench <a href="https://github.com/ClickHouse/ClickBench">https://github.com/ClickHouse/ClickBench</a></p></p>
+        <p>Data is based on obfuscated data from Yandex.Metrica production.</p>
+        <p>Dataset contains 100m rows, 70GB uncompressed data.</p>
+        <p>Queries mostly analytical, but some contain unindexed key lookups:</p>
+        <code style="font-size: 16pt;">SELECT UserID FROM hits WHERE UserID = 435090932899640449;</code>
+        <p></p>
+        <p>Main goal is to utilize and stress test system under pressure, to find some hotspots that can be optimized.</p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 ClickBench upload</h2>
+
+        <p>CPU: Kunpeng 920-4826 (95 cores).</p>
+        <p>RAM: 502GB.</p>
+        <p>Disk: SSD SAMSUNG MZ7LH960 (Sequential write around 500 MB/s, read around 500 MB/s).</p>
+
+        <p>AARCH64 data upload time:</p>
+        <code style="font-size: 18pt;">YDB row storage - 1740 seconds (29 min)
+YDB row storage (reserve shards) - 911 seconds (15 min)
+Postgres - 1450 seconds (24 min)</code>
+        <p></p>
+    </section>
+
+    <section class="slide">
+        <h2>X86-64 ClickBench upload</h2>
+
+        <p>CPU: Intel(R) Xeon(R) Gold 6126.</p>
+        <p>RAM: 375GB.</p>
+        <p>Disk: SSD SDLF1CRM016T-1HH.</p>
+
+        <p>X86-64 data upload time:</p>
+        <code style="font-size: 18pt;">YDB row storage - 2756 seconds (45 min)
+YDB row storage (reserve shards) - 1298 seconds (22 min)
+Postgres - 1730 seconds (30 min)</code>
+    </section>
+
+    <section class="slide">
+        <h2>ClickBench Configuration</h2>
+
+        <p>YDB configuration: 1 storage node, 4 dynamic nodes (standard configuration for large servers).</p>
+        <p>PostgreSQL configuration: optimized version for ClickBench
+            <a href="https://github.com/ClickHouse/ClickBench/tree/8d51fca14edb2013d3c7f8624517d4adf5af344d/postgresql-tuned">
+                https://github.com/ClickHouse/ClickBench/tree/main/postgresql-tuned
+            </a>
+        (number of workers and buffers sizes increased to fully match machine capabilities).</p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 ClickBench</h2>
+
+        <img style="width: 85%;" src="pictures/aarch64_hits_full_postgres_ydb.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>X86-64 ClickBench</h2>
+
+        <img style="width: 85%;" src="pictures/x86_64_hits_full_postgres_ydb.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>X86-64 JIT</h2>
+
+        <p>JIT can provide a lot of performance improvements for analytical workloads (2x - 29x performance improvement).</p>
+        <p>Currently available only for X86-64.</p>
+
+        <code style="font-size: 18pt;">table_service_config:
+    <b>enable_async_computation_pattern_compilation</b>: true</code>
+    </section>
+
+    <section class="slide">
+        <h2>X86-64 JIT ClickBench</h2>
+
+        <img style="width: 85%;" src="pictures/x86_64_hits_full_jit.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>X86-64 JIT ClickBench</h2>
+
+        <code style="font-size: 14pt;">SELECT SUM(ResolutionWidth), SUM(ResolutionWidth + 1),
+    SUM(ResolutionWidth + 2), SUM(ResolutionWidth + 3),
+    SUM(ResolutionWidth + 4), SUM(ResolutionWidth + 5),
+    SUM(ResolutionWidth + 6), SUM(ResolutionWidth + 7),
+    SUM(ResolutionWidth + 8), SUM(ResolutionWidth + 9),
+    SUM(ResolutionWidth + 10), SUM(ResolutionWidth + 11),
+    SUM(ResolutionWidth + 12), SUM(ResolutionWidth + 13),
+    SUM(ResolutionWidth + 14), SUM(ResolutionWidth + 15),
+    ...
+    SUM(ResolutionWidth + 87), SUM(ResolutionWidth + 88),
+    SUM(ResolutionWidth + 89) FROM hits;</code>
+
+        <br>
+        <p>Before (without JIT): 56.1 seconds.</p>
+        <p>After (with JIT): 1.9 seconds.</p>
+</code>
+    </section>
+
+    <section class="slide">
+        <h2>Next steps</h2>
+
+        <p>Testing:</p>
+        <p>1. Benchmark 9 nodes AARCH64, x86-64 clusters.</p>
+        <p>2. Run traditional key-value benchmarks (YCSB, TPCC).</p>
+
+        <p>Performance improvements:</p>
+        <p>1. Enable JIT for AARCH64.</p>
+        <p>2. AARCH64 tune low-level libraries (ChaCha encryption, XXH3 hash, etc.).</p>
+    </section>
+
+    <section class="slide">
+        <h2>Questions?</h2>
+    </section>
+
+    <div class="progress"></div>
+    <script src="shower/shower.min.js"></script>
+
+    <!--Video plugin-->
+    <link rel="stylesheet" href="shower/shower-video.css">
+    <script src="shower/shower-video.js"></script>
+    <!--/Video plugin-->
+</body>
+</html>
