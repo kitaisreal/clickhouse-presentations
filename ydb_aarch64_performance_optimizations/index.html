@@ -47,6 +47,124 @@
     </section>
 
     <section class="slide">
+        <h2>AARCH64 atomics</h2>
+
+        <p>ARM is weakly ordered, similar to POWER and other modern architectures. While
+            x86 is a variant of total-store-ordering (TSO).</p>
+        <p>Code that relies on TSO may lack barriers to properly order memory references.</p>
+        <p>Armv8 based systems are <a href="https://www.cl.cam.ac.uk/~pes20/armv8-mca/armv8-mca-draft.pdf">
+            weakly ordered multi-copy-atomic</a>.</p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 atomics</h2>
+
+        <p>LSE (Large System Extensions).</p>
+        <p>Enabled with <b>-moutline-atomics</b> compile flag to detect and use in runtime. Introduces run-time dispatch overhead.</p>
+        <p>Can be enabled without run-time dispatch with <b>-march=armv8.2-a</b>.</p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 LSE before</h2>
+
+        <code style="font-size: 14pt;">bool simpleCAS(std::atomic&lt;int64_t&gt; value,
+    int64_t old_value,
+    int64_t new_value)
+{
+    return value.compare_exchange_strong(old_value, new_value);
+}
+    </code>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 without LSE</h2>
+
+        <p>Loop inside CAS.</p>
+        <p></p>
+        <code style="font-size: 14pt;">0000000000400690 &lt;_Z9simpleCASSt6atomicIlEll&gt;:
+ <b>400690</b>:	c85ffc03 	ldaxr	x3, [x0]
+ 400694:	eb01007f 	cmp	x3, x1
+ 400698:	54000061 	<b>b.ne	4006a4</b>
+ 40069c:	c804fc02 	stlxr	w4, x2, [x0]
+ 4006a0:	35ffff84 	<b>cbnz	w4, 400690</b>
+ <b>4006a4</b>:	1a9f17e0 	cset	w0, eq
+ 4006a8:	d65f03c0 	ret
+ 4006ac:	d503201f 	nop
+    </code>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 with LSE</h2>
+
+        <p>No loop inside CAS.</p>
+        <code style="font-size: 14pt;">0000000000400690 &lt;_Z9simpleCASSt6atomicIlEll&gt;:
+ 400690:	aa0103e3 	mov	x3, x1
+ 400694:	c8e3fc02 	casal	x3, x2, [x0]
+ 400698:	eb01007f 	cmp	x3, x1
+ 40069c:	1a9f17e0 	cset	w0, eq
+ 4006a0:	d65f03c0 	ret
+        </code>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 spin lock benchmark</h2>
+
+        <p>Slightly suboptimal implementation in case of high-contention:</p>
+
+        <code style="font-size: 10pt;">class SpinLock
+{
+public:
+    void lock() {
+        while (true) {
+            if (!lock_.exchange(true, std::memory_order_acq_rel)) {
+                break;
+            }
+
+            pauseYield();
+        }
+    }
+
+    void unlock() {
+        lock_.store(false, std::memory_order_release);
+    }
+
+    private:
+        std::atomic<bool> lock_;
+};
+    </code>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 spin lock benchmark</h2>
+
+        <p>CPU Kunpeng 920-4826 (96 cores).</p>
+        <p>Run simple benchmark to measure <b>lock</b>, <b>unlock</b> performance for 16 threads.</p>
+
+        <p>Without LSE: <b>9250 ms</b>.</p>
+        <p>With LSE: <b>3114 ms</b>.</p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 proper memory orders</h2>
+
+        <p>Almost does not matter on X86. Does matter on ARM.</p>
+        <p>1. sequential-consistency</p>
+        <p>2. acquire/release</p>
+        <p>3. relaxed</p>
+
+        <p>TODO: Link to C++ memory order</p>
+    </section>
+
+    <section class="slide">
+        <h2>AARCH64 proper memory orders</h2>
+
+        <p>In old libraries can be a lot of suboptimal implementation of synchronization primitives, spin locks, custom lock-free data structures, memory barriers.</p>
+        <p>Probably contain a lot of bugs on ARM, because was tested only on X86.</p>
+        <p>Very hard to maintain, modify.</p>
+        <p>All new code need to use <b>std::atomic</b> and build synchronization primitives on top of it.</p>
+    </section>
+
+    <section class="slide">
         <h2>AARCH64 CRC32 library</h2>
 
         <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits_5m;</code>
@@ -133,7 +251,34 @@ Overhead  Shared Object            Symbol
     </section>
 
     <section class="slide">
-        <h2>AARCH64 Benchmark</h2>
+        <h2>ARM Cluster</h2>
+
+        <p>9 nodes</p>
+        <p>CPU: Kunpeng 920-4826 (96 physical cores).</p>
+        <p>RAM: 502GB.</p>
+        <p>Disk: SSD SAMSUNG MZ7LH960 (Sequential write around 500 MB/s, read around 500 MB/s).</p>
+    </section>
+
+    <section class="slide">
+        <h2>X86-64 Cluster</h2>
+
+        <p>9 nodes</p>
+        <p>CPU: Intel(R) Xeon(R) Gold 6126 (24 physical cores, 48 cores with hyper-threading).</p>
+        <p>RAM: 375GB.</p>
+        <p>Disk: SSD SDLF1CRM016T-1HH.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Benchmarks</h2>
+
+        <p>Benchmarks:</p>
+        <p>1. ClickBench.</p>
+        <p>2. YCSB.</p>
+        <p>3. TPC-C.</p>
+    </section>
+
+    <section class="slide">
+        <h2>ClickBench</h2>
 
         <p>ClickBench <a href="https://github.com/ClickHouse/ClickBench">https://github.com/ClickHouse/ClickBench</a></p></p>
         <p>Data is based on obfuscated data from Yandex.Metrica production.</p>
@@ -145,13 +290,10 @@ Overhead  Shared Object            Symbol
     </section>
 
     <section class="slide">
-        <h2>AARCH64 ClickBench upload</h2>
-
-        <p>CPU: Kunpeng 920-4826 (95 cores).</p>
-        <p>RAM: 502GB.</p>
-        <p>Disk: SSD SAMSUNG MZ7LH960 (Sequential write around 500 MB/s, read around 500 MB/s).</p>
+        <h2>AARCH64 ClickBench single machine upload</h2>
 
         <p>AARCH64 data upload time:</p>
+
         <code style="font-size: 18pt;">YDB row storage - 1740 seconds (29 min)
 YDB row storage (reserve shards) - 911 seconds (15 min)
 Postgres - 1450 seconds (24 min)</code>
@@ -159,11 +301,7 @@ Postgres - 1450 seconds (24 min)</code>
     </section>
 
     <section class="slide">
-        <h2>X86-64 ClickBench upload</h2>
-
-        <p>CPU: Intel(R) Xeon(R) Gold 6126.</p>
-        <p>RAM: 375GB.</p>
-        <p>Disk: SSD SDLF1CRM016T-1HH.</p>
+        <h2>X86-64 ClickBench single machine upload</h2>
 
         <p>X86-64 data upload time:</p>
         <code style="font-size: 18pt;">YDB row storage - 2756 seconds (45 min)
@@ -172,9 +310,9 @@ Postgres - 1730 seconds (30 min)</code>
     </section>
 
     <section class="slide">
-        <h2>ClickBench Configuration</h2>
+        <h2>ClickBench configuration</h2>
 
-        <p>YDB configuration: 1 storage node, 4 dynamic nodes (standard configuration for large servers).</p>
+        <p>YDB configuration: 1 storage node, 4 dynamic nodes (standard configuration for large servers). All nodes are on single physical machine.</p>
         <p>PostgreSQL configuration: optimized version for ClickBench
             <a href="https://github.com/ClickHouse/ClickBench/tree/8d51fca14edb2013d3c7f8624517d4adf5af344d/postgresql-tuned">
                 https://github.com/ClickHouse/ClickBench/tree/main/postgresql-tuned
@@ -232,15 +370,323 @@ Postgres - 1730 seconds (30 min)</code>
     </section>
 
     <section class="slide">
+        <h2>ClickBench on ARM X86 cluster</h2>
+
+        <p>ARM upload time: 954 seconds.</p>
+        <p>X86 upload time: 1440 seconds.</p>
+
+        <p>ARM 50% faster.</p>
+    </section>
+
+    <section class="slide">
+        <h2>ClickBench on cluster</h2>
+
+        <img style="width: 85%;" src="pictures/arm_x86_cluster_hits_full.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>ClickBench on cluster</h2>
+
+        <code style="font-size: 14pt;">SELECT SUM(ResolutionWidth), SUM(ResolutionWidth + 1),
+    SUM(ResolutionWidth + 2), SUM(ResolutionWidth + 3),
+    SUM(ResolutionWidth + 4), SUM(ResolutionWidth + 5),
+    SUM(ResolutionWidth + 6), SUM(ResolutionWidth + 7),
+    SUM(ResolutionWidth + 8), SUM(ResolutionWidth + 9),
+    SUM(ResolutionWidth + 10), SUM(ResolutionWidth + 11),
+    SUM(ResolutionWidth + 12), SUM(ResolutionWidth + 13),
+    SUM(ResolutionWidth + 14), SUM(ResolutionWidth + 15),
+    ...
+    SUM(ResolutionWidth + 87), SUM(ResolutionWidth + 88),
+    SUM(ResolutionWidth + 89) FROM hits;</code>
+
+        <br>
+
+        <p>ARM: 31 seconds.</p>
+        <p>X86: 71 seconds.</p>
+</code>
+    </section>
+
+    <section class="slide">
+        <h2>ClickBench on cluster</h2>
+
+        <p>Overall ARM is faster in 15-25%.</p>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB</h2>
+
+        <p>Yahoo! Cloud Serving Benchmark.</p>
+        <p>Several different key-value workloads.</p>
+        <p>Each workload can be parameterized using record count, threads and target queries for each thread.</p>
+        <p>Zipfian distribution.</p>
+
+        <p><a href="https://github.com/brianfrankcooper/YCSB">https://github.com/brianfrankcooper/YCSB</a></p></p>
+        <p><a href="https://courses.cs.duke.edu/fall13/compsci590.4/838-CloudPapers/ycsb.pdf">Benchmarking Cloud Serving Systems with YCSB</a></p></p>
+        <p><a href="https://en.wikipedia.org/wiki/Zipf%27s_law">Zipfian distribution</a></p></p>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB workloads</h2>
+
+        <p>Workload A: Update heavy workload (50/50 reads/writes).</p>
+        <p>Workload B: Read mostly workload (95/5 reads/writes).</p>
+        <p>Workload C: Read only.</p>
+        <p>Workload D: Read latest (insert new record and read inserted).</p>
+        <p>Workload E: Read ranges.</p>
+        <p>Workload F: Read-modify-write (read record modify it and write).</p>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB</h2>
+
+        <p>Datasets: 10M (10 GB), 100M (100 GB), 300M (300 Gb).</p>
+        <p>Workloads: A, B, C, D, E, F.</p>
+        <p>Threads: 1, 64, 128, 256, 512, 1024.</p>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB</h2>
+
+        <p>ARM 10m, 100m, 300m upload time: 107, 1311, 3945 seconds.</p>
+        <p>X86 10m, 100m, 300m upload time: 148, 1839, 6750 seconds.</p>
+
+        <p>Almost linear scaling with increased amount of data.</p>
+        <p>ARM is 30-50% faster.</p>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 10m</h2>
+
+        <code style="font-size: 20pt;">ydb -p test_db_cluster scheme describe usertable
+--stats --partition-stats --permissions</code>
+
+        <p></p>
+
+        <code style="font-size: 16pt;">Table stats:
+Partitions count: 50
+Approximate number of rows: 10000000
+Approximate size of table: 10.65 Gb</code>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 10m A</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_10m_workload_A.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 10m B</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_10m_workload_B.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 10m C</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_10m_workload_C.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 10m E</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_10m_workload_E.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 10m F</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_10m_workload_F.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 10m</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_10m.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 100m</h2>
+
+        <code style="font-size: 20pt;">ydb -p test_db_cluster scheme describe usertable
+--stats --partition-stats --permissions</code>
+
+        <p></p>
+
+        <code style="font-size: 16pt;">Table stats:
+Partitions count: 80
+Approximate number of rows: 100000000
+Approximate size of table: 106.14 Gb</code>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 100m A</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_100m_workload_A.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 100m B</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_100m_workload_B.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 100m C</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_100m_workload_C.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 100m E</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_100m_workload_E.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 100m F</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_100m_workload_F.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 100m</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_100m.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 300m</h2>
+
+        <code style="font-size: 20pt;">ydb -p test_db_cluster scheme describe usertable
+--stats --partition-stats --permissions</code>
+
+        <p></p>
+
+        <code style="font-size: 16pt;">Table stats:
+Partitions count: 229
+Approximate number of rows: 300000400
+Approximate size of table: 318.61 Gb</code>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 300m A</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_300m_workload_A.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 300m B</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_300m_workload_B.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 300m C</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_300m_workload_C.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 300m E</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_300m_workload_E.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 300m F</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_300m_workload_F.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 300m</h2>
+
+        <img style="width: 85%;" src="pictures/ycsb_300m.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB 300m</h2>
+
+        <p>Throughput increases with increase of data size because of partitioning.</p>
+        <p>ARM does not have any scalability issues, only CPU underutilization.</p>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB ARM Workload A Flame Graph</h2>
+
+        <img style="width: 100%;" src="pictures/ycsb_arm_100m_workload_a_framegraph.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>YCSB ARM Workload A Flame Graph</h2>
+
+        <img style="width: 100%;" src="pictures/ycsb_arm_100m_workload_a_actor_system_flamegraph.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>TPC-C</h2>
+
+        <p>Industry standard benchmark for OLTP databases.</p>
+        <p>Complex schema for wholesale supplier database.</p>
+        <p>Can be parameterized only with warehouse count.</p>
+        <p>Each transaction can access multiple table with complex access patterns.</p>
+        <p><a href="https://www.tpc.org/tpc_documents_current_versions/pdf/tpc-c_v5.11.0.pdf">TPC-C standard</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>TPC-C</h2>
+
+        <img style="width: 85%;" src="pictures/tpcc_schema.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>TPC-C</h2>
+
+        <p>TPM-C - NewOrder transactions per second.</p>
+        <p>Efficiency - TPM-C / Maximum possible TPM-C.</p>
+        <p>Latency numbers for each transaction type.</p>
+    </section>
+
+    <section class="slide">
+        <h2>TPC-C</h2>
+
+        <p>ARM 1000, 2500 warehouses upload time: 592, 1361 seconds.</p>
+        <p>X86 1000, 2500 warehouses upload time: 1860, 2591 seconds.</p>
+    </section>
+
+    <section class="slide">
+        <h2>TPC-C</h2>
+
+        <p>ARM</p>
+        <p>1000 warehouses TPM-C 12186.</p>
+        <p>2500 warehouses TPM-C 24510.</p>
+
+        <p>X86</p>
+        <p>1000 warehouses TPM-C 12093.</p>
+        <p>2500 warehouses TPM-C 23910.</p>
+
+        <p>In all cases efficiency higher than 97%.</p>
+    </section>
+
+    <section class="slide">
         <h2>Next steps</h2>
 
         <p>Testing:</p>
-        <p>1. Benchmark 9 nodes AARCH64, x86-64 clusters.</p>
-        <p>2. Run traditional key-value benchmarks (YCSB, TPCC).</p>
+        <p>1. Run bigger version of TPCC.</p>
 
         <p>Performance improvements:</p>
-        <p>1. Enable JIT for AARCH64.</p>
-        <p>2. AARCH64 tune low-level libraries (ChaCha encryption, XXH3 hash, etc.).</p>
+
+        <p>1. Improve performance for low-latency KV benchmarks (YCSB, TPCC)</p>
+        <p>2. Enable JIT for AARCH64.</p>
+        <p>3. AARCH64 tune low-level libraries (ChaCha encryption, XXH3 hash, etc.).</p>
+    </section>
+
+    <section class="slide">
+        <h2>Conclusion</h2>
+
+        <p>Most problems with ARM optimizations are different cost-model in comparison with X86 (virtual functions, atomics).</p>
+        <p>Some things work great on X86, will not work on ARM or will be slow.</p>
+        <p>Low-level libraries need to be optimized.</p>
     </section>
 
     <section class="slide">
