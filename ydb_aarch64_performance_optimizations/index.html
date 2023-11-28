@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>YDB AARCH64 Performance Optimizations</title>
+    <title>YDB ARM Performance Optimizations</title>
     <meta charset="utf-8">
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,57 +15,101 @@
 </head>
 <body class="shower list">
     <header class="caption">
-        <h1>YDB AARCH64 Performance Optimizations</h1>
+        <h1>YDB ARM Performance Optimizations</h1>
     </header>
 
-    <section class="slide" id="cover">
-        <h1 style="margin-top: 150px;">YDB AARCH64 Performance Optimizations</h1>
+    <section class="slide" id="cover" style="background: #FFF url('pictures/front.png') no-repeat; background-size: 100%;">
     </section>
 
     <section class="slide">
-        <h2>AARCH64 optimization problems</h2>
+        <h2>About me</h2>
+
+        <p>Maksim, developer of YDB.</p>
+        <a href="https://maksimkita.com/">https://maksimkita.com/</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>Plan</h2>
+
+        <p>1. ARM optimization basics.</p>
+        <p>2. Benchmarks.</p>
+        <p>3. ClickBench.</p>
+        <p>4. YSCB.</p>
+        <p>5. TPC-C.</p>
+    </section>
+
+    <section class="slide">
+        <h1 style="margin-top: 150px;">ARM optimization basics</h1>
+    </section>
+
+    <section class="slide">
+        <h2>ARM optimization problems</h2>
 
         <p>Main infrastructure problems:</p>
 
-        <p>1. Low-level libraries does not always have AARCH64 support.</p>
-        <p>2. Low-level libraries are not optimized. Example: compression/decompression libraries (lz4, zstd), hashes, etc.</p>
+        <p>1. Low-level libraries do not always have ARM support.</p>
+        <p>2. Low-level libraries are not optimized for ARM. Examples: compression/decompression libraries (lz4, zstd), hashes.</p>
         <p>3. Tools are not optimized (objdump, perf).</p>
-        <p>4. Compilers generate less efficient code (gcc, clang). AARCH64 backends have less platform specific optimizations.</p>
+        <p>4. Compilers generate less efficient code (gcc, clang). ARM backends have less platform specific optimizations.</p>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 optimization problems</h2>
+        <h2>ARM optimization problems</h2>
 
         <p>Main implementation problems:</p>
 
-        <p>1. Different costs (virtual function call, atomics, read/write unaligned memory, etc.)</p>
+        <p>1. Different costs (virtual function call, atomics, read/write unaligned memory, etc.).</p>
         <p>2. Neon is not SSE4.2, AVX2, AVX512. Example: No <b>pmovmskb</b> instruction. Libraries that convert Neon to X86-64 SIMD are
             not efficient.</p>
         <p>3. A lot of platform dependend code (X86-64).</p>
 
-        <a href="https://github.com/aws/aws-graviton-getting-started/blob/main/perfrunbook/graviton_perfrunbook.md">https://github.com/aws/aws-graviton-getting-started/blob/main/perfrunbook/graviton_perfrunbook.md</a></p>
+        <p><a href="https://github.com/aws/aws-graviton-getting-started/blob/main/perfrunbook/graviton_perfrunbook.md">https://github.com/aws/aws-graviton-getting-started/blob/main/perfrunbook/graviton_perfrunbook.md</a></p>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 atomics</h2>
+        <h2>ARM atomics</h2>
 
         <p>ARM is weakly ordered, similar to POWER and other modern architectures. While
             x86 is a variant of total-store-ordering (TSO).</p>
         <p>Code that relies on TSO may lack barriers to properly order memory references.</p>
-        <p>Armv8 based systems are <a href="https://www.cl.cam.ac.uk/~pes20/armv8-mca/armv8-mca-draft.pdf">
+        <p>ARMv8 based systems are <a href="https://www.cl.cam.ac.uk/~pes20/armv8-mca/armv8-mca-draft.pdf">
             weakly ordered multi-copy-atomic</a>.</p>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 atomics</h2>
+        <h2>ARM atomics</h2>
 
         <p>LSE (Large System Extensions).</p>
         <p>Enabled with <b>-moutline-atomics</b> compile flag to detect and use in runtime. Introduces run-time dispatch overhead.</p>
         <p>Can be enabled without run-time dispatch with <b>-march=armv8.2-a</b>.</p>
+        <p>Supported by Graviton 2, Kunpeng 920-4826 and all recent ARM CPUs.</p>
+
+        <p><a href="https://learn.arm.com/learning-paths/servers-and-cloud-computing/lse/intro/">https://learn.arm.com/learning-paths/servers-and-cloud-computing/lse/intro/</a></p>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 LSE before</h2>
+        <h2>ARM atomics</h2>
+
+        <p>LSE introduces a set of atomic instructions:</p>
+
+        <p>1. Compare and Swap instructions: CAS and CASP</p>
+        <p>2. Atomic memory operation instructions: LD&lt;op&gt; and ST&lt;op&gt;, where &lt;op&gt; is one of ADD, CLR, EOR, SET, SMAX, SMIN, UMAX, and UMIN</p>
+        <p>3. Swap instruction: SWP</p>
+    </section>
+
+    <section class="slide">
+        <h2>ARM atomics</h2>
+
+        <p>In architecture versions prior to LSE, read-modify-write sequences use load exclusive and store exclusive instructions.</p>
+        <p>Incrementing a shared variable uses a sequence such as:</p>
+        <p>1. LDXR to read current count (load exclusive).</p>
+        <p>2. ADD to add one to the shared variable.</p>
+        <p>3. STXR to attempt to store to memory (store exclusive).</p>
+        <p>4. CMP to check if the operation succeeded.</p>
+    </section>
+
+    <section class="slide">
+        <h2>ARM atomics</h2>
 
         <code style="font-size: 14pt;">bool simpleCAS(std::atomic&lt;int64_t&gt; value,
     int64_t old_value,
@@ -77,67 +121,116 @@
     </section>
 
     <section class="slide">
-        <h2>AARCH64 without LSE</h2>
+        <h2>ARM without LSE</h2>
 
-        <p>Loop inside CAS.</p>
+        <p>Loop inside CAS:</p>
         <p></p>
         <code style="font-size: 14pt;">0000000000400690 &lt;_Z9simpleCASSt6atomicIlEll&gt;:
- <b>400690</b>:	c85ffc03 	ldaxr	x3, [x0]
- 400694:	eb01007f 	cmp	x3, x1
- 400698:	54000061 	<b>b.ne	4006a4</b>
- 40069c:	c804fc02 	stlxr	w4, x2, [x0]
- 4006a0:	35ffff84 	<b>cbnz	w4, 400690</b>
- <b>4006a4</b>:	1a9f17e0 	cset	w0, eq
+ <b>400690:	c85ffc03 	ldaxr	x3, [x0]</b>
+ <b>400694:	eb01007f 	cmp	x3, x1</b>
+ <b>400698:	54000061 	b.ne	4006a4</b>
+ <b>40069c:	c804fc02 	stlxr	w4, x2, [x0]</b>
+ <b>4006a0:	35ffff84 	cbnz	w4, 400690</b>
+ 4006a4:	1a9f17e0 	cset	w0, eq
  4006a8:	d65f03c0 	ret
  4006ac:	d503201f 	nop
     </code>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 with LSE</h2>
+        <h2>ARM with LSE</h2>
 
-        <p>No loop inside CAS.</p>
+        <p>No loop inside CAS:</p>
+        <p></p>
         <code style="font-size: 14pt;">0000000000400690 &lt;_Z9simpleCASSt6atomicIlEll&gt;:
- 400690:	aa0103e3 	mov	x3, x1
- 400694:	c8e3fc02 	casal	x3, x2, [x0]
- 400698:	eb01007f 	cmp	x3, x1
+ <b>400690:	aa0103e3 	mov	x3, x1</b>
+ <b>400694:	c8e3fc02 	casal	x3, x2, [x0]</b>
+ <b>400698:	eb01007f 	cmp	x3, x1</b>
  40069c:	1a9f17e0 	cset	w0, eq
  4006a0:	d65f03c0 	ret
         </code>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 spin lock benchmark</h2>
-
-        <p>Slightly suboptimal implementation in case of high-contention:</p>
+        <h2>ARM spinlock benchmark</h2>
 
         <code style="font-size: 10pt;">class SpinLock
 {
 public:
-    void lock() {
-        while (true) {
-            if (!lock_.exchange(true, std::memory_order_acq_rel)) {
+    void lock()
+    {
+        while (true)
+        {
+            if (!lock_.exchange(true, std::memory_order_acq_rel))
                 break;
-            }
 
-            pauseYield();
+            while (lock_.load(std::memory_order_relaxed))
+                pauseYield();
         }
     }
 
-    void unlock() {
+    void unlock()
+    {
         lock_.store(false, std::memory_order_release);
     }
-
-    private:
-        std::atomic<bool> lock_;
+private:
+    std::atomic&lt;bool&gt; lock_;
 };
     </code>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 spin lock benchmark</h2>
+        <h2>ARM spinlock lock without LSE</h2>
 
-        <p>CPU Kunpeng 920-4826 (96 cores).</p>
+        <code style="font-size: 14pt;">0000000000400690 &lt;_ZN8SpinLock4lockEv&gt;:
+  400690:	52800022 	mov	w2, #0x1
+  400694:	d503201f 	nop
+  <b>400698:	085ffc01 	ldaxrb	w1, [x0]</b>
+  <b>40069c:	0803fc02 	stlxrb	w3, w2, [x0]</b>
+  <b>4006a0:	35ffffc3 	cbnz	w3, 400698</b>
+  4006a4:	72001c3f 	tst	w1, #0xff
+  4006a8:	540000c0 	b.eq	4006c0
+  4006ac:	39400001 	ldrb	w1, [x0]
+  4006b0:	72001c3f 	tst	w1, #0xff
+  4006b4:	54ffff20 	b.eq	400698
+  4006b8:	d503203f 	yield
+  4006bc:	17fffffc 	b	4006ac
+  4006c0:	d65f03c0 	ret
+  4006c4:	d503201f 	nop
+  4006c8:	d503201f 	nop
+
+00000000004006d0 &lt;_ZN8SpinLock6unlockEv&gt;:
+  4006d0:	089ffc1f 	stlrb	wzr, [x0]
+  4006d4:	d65f03c0 	ret
+        </code>
+        </section>
+
+    <section class="slide">
+        <h2>ARM spinlock lock with LSE</h2>
+
+        <code style="font-size: 14pt;">0000000000400690 &lt;_ZN8SpinLock4lockEv&gt;:
+  400690:	52800022 	mov	w2, #0x1
+  400694:	d503201f 	nop
+  <b>400698:	38e28001 	swpalb	w2, w1, [x0]</b>
+  40069c:	72001c3f 	tst	w1, #0xff
+  4006a0:	540000e0 	b.eq	4006bc
+  4006a4:	d503201f 	nop
+  4006a8:	39400001 	ldrb	w1, [x0]
+  4006ac:	72001c3f 	tst	w1, #0xff
+  4006b0:	54ffff40 	b.eq	400698
+  4006b4:	d503203f 	yield
+  4006b8:	17fffffc 	b	4006a8
+  4006bc:	d65f03c0 	ret
+
+00000000004006c0 &lt;_ZN8SpinLock6unlockEv&gt;:
+  4006c0:	089ffc1f 	stlrb	wzr, [x0]
+  4006c4:	d65f03c0 	ret
+</code>
+        </section>
+
+    <section class="slide">
+        <h2>ARM spinlock benchmark</h2>
+
         <p>Run simple benchmark to measure <b>lock</b>, <b>unlock</b> performance for 16 threads.</p>
 
         <p>Without LSE: <b>9250 ms</b>.</p>
@@ -145,29 +238,88 @@ public:
     </section>
 
     <section class="slide">
-        <h2>AARCH64 proper memory orders</h2>
+        <h2>ARM proper memory orders</h2>
 
-        <p>Almost does not matter on X86. Does matter on ARM.</p>
+        <p>Almost does not matter on X86-64. Matters a lot on ARM.</p>
         <p>1. sequential-consistency</p>
         <p>2. acquire/release</p>
         <p>3. relaxed</p>
-
-        <p>TODO: Link to C++ memory order</p>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 proper memory orders</h2>
+        <h2>ARM proper memory orders</h2>
 
-        <p>In old libraries can be a lot of suboptimal implementation of synchronization primitives, spin locks, custom lock-free data structures, memory barriers.</p>
-        <p>Probably contain a lot of bugs on ARM, because was tested only on X86.</p>
+        <p>In old libraries can be a lot of suboptimal implementation of synchronization primitives, spinlocks, custom lock-free data structures, memory barriers.</p>
+        <p>Probably contain a lot of bugs on ARM, because was tested only on X86-64.</p>
         <p>Very hard to maintain, modify.</p>
         <p>All new code need to use <b>std::atomic</b> and build synchronization primitives on top of it.</p>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 CRC32 library</h2>
+        <h2>ARM cache line size</h2>
 
-        <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits_5m;</code>
+        <p>Platform dependend paddings:</p>
+
+        <code style="font-size: 12pt;">alignas(64) std::atomic&lt;uint64_t&gt; state;
+char padding[64 - sizeof(state)];</code>
+        <p></p>
+        <p>Can be replaced with:</p>
+        <code style="font-size: 12pt;">alignas(hardware_destructive_interference_size) std::atomic&lt;uint64_t&gt; state;
+char padding[hardware_destructive_interference_size - sizeof(state)];</code>
+        <p></p>
+        <p style="font-size: 14pt;"><a href="https://en.cppreference.com/w/cpp/thread/hardware_destructive_interference_size">https://en.cppreference.com/w/cpp/thread/hardware_destructive_interference_size</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>ARM SIMD</h2>
+
+        <p>1. Autovectorization. Preferred option.</p>
+        <p>2. Manual SIMD instructions using intrinsics or assembly.</p>
+
+        <p>X86-64 intrinsics usage header examples:</p>
+        <code style="font-size: 16pt;">#include &lt;immintrin.h&gt;
+#include &lt;emmintrin.h&gt;</code>
+
+        <p></p>
+
+        <p>Special libraries can help with X86-64 intrinsics rewritting:</p>
+        <p><a href="https://github.com/simd-everywhere/simde">https://githcom/simd-everywhere/simde</a></p>
+        <p><a href="https://github.com/DLTcollab/sse2neon">https://github.com/DLTcollab/sse2neon</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>ARM libraries</h2>
+
+        <p>A lot of platform dependend code (X86-64).</p>
+
+        <code style="font-size: 14pt;">#if defined(__x86_64__)
+
+#ifdef __SSE2__
+
+#if defined(__AVX__) || defined(__AVX2__)
+
+#ifdef __BMI__
+</code>
+    </section>
+
+    <section class="slide">
+        <h2>ARM libraries</h2>
+
+        <p>Add special branches for ARM (AARCH64):</p>
+        <code style="font-size: 14pt;">#if defined(__aarch64__)</code>
+
+        <p></p>
+        <p>For SIMD intrinsics:</p>
+        <code style="font-size: 14pt;">#if defined(__ARM_NEON)
+#include &lt;arm_neon.h&gt;
+#endif</code>
+
+    </section>
+
+    <section class="slide">
+        <h2>ARM CRC library</h2>
+
+        <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits;</code>
         <p></p>
         <p>Perf top output:</p>
         <code style="font-size: 10pt;">Samples: 1M of event 'cycles:P', 4000 Hz, Event count (approx.): 165205540299 lost: 0/0 drop: 0/588582
@@ -193,20 +345,20 @@ Overhead  Shared Object            Symbol
     </section>
 
     <section class="slide">
-        <h2>AARCH64 CRC32 library</h2>
+        <h2>ARM CRC library</h2>
 
         <img style="width: 100%;" src="pictures/crc32_flamegraph_before.png"/>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 CRC library</h2>
+        <h2>ARM CRC library</h2>
 
         <p>Problem was invalid architecture dispatch inside CRC library.</p>
-        <p>For AARCH64 CRC library dispatched into the most inneficient implementation.</p>
+        <p>For ARM CRC library dispatched into the most inneficient implementation.</p>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 CRC library after fix</h2>
+        <h2>ARM CRC library after fix</h2>
 
         <p>Perf top output:</p>
 
@@ -234,27 +386,25 @@ Overhead  Shared Object            Symbol
     </section>
 
     <section class="slide">
-        <h2>AARCH64 CRC library after fix</h2>
+        <h2>ARM CRC library after fix</h2>
 
-        <img style="width: 100%; height: auto;" src="pictures/crc32_flamegraph_after.png"/>
+        <p>Around 20% reduce of CPU usage.</p>
+        <p>For queries after fix there is 10% - 20% performance improvement:</p>
+        <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits;</code>
+        <p></p>
+        <p>Was: <b style="color: red;">3091</b> ms</p>
+        <p>Now: <b style="color: green;">2575</b> ms</p>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 CRC library after fix</h2>
-
-        <p>For queries after fix there is 10% - 20% performance improvement:</p>
-        <p>Before:</p>
-        <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits_5m; median 12560.67</code>
-        <p></p>
-        <p>After:</p>
-        <code style="font-size: 18pt;">SELECT COUNT(*) FROM hits_5m; median 11329.278</code>
+        <h1 style="margin-top: 150px;">ARM benchmarks</h1>
     </section>
 
     <section class="slide">
         <h2>ARM Cluster</h2>
 
         <p>9 nodes</p>
-        <p>CPU: Kunpeng 920-4826 (96 physical cores).</p>
+        <p>CPU: 2 x Kunpeng 920-4826 (2 x 48 = 96 physical cores).</p>
         <p>RAM: 502GB.</p>
         <p>Disk: SSD SAMSUNG MZ7LH960 (Sequential write around 500 MB/s, read around 500 MB/s).</p>
     </section>
@@ -263,7 +413,7 @@ Overhead  Shared Object            Symbol
         <h2>X86-64 Cluster</h2>
 
         <p>9 nodes</p>
-        <p>CPU: Intel(R) Xeon(R) Gold 6126 (24 physical cores, 48 cores with hyper-threading).</p>
+        <p>CPU: 2 x Intel(R) Xeon(R) Gold 6126 (2 x 12 = 24 physical cores, 24 * 2 = 48 virtual cores with hyper-threading).</p>
         <p>RAM: 375GB.</p>
         <p>Disk: SSD SDLF1CRM016T-1HH.</p>
     </section>
@@ -275,6 +425,10 @@ Overhead  Shared Object            Symbol
         <p>1. ClickBench.</p>
         <p>2. YCSB.</p>
         <p>3. TPC-C.</p>
+    </section>
+
+    <section class="slide">
+        <h1 style="margin-top: 150px;">ClickBench</h1>
     </section>
 
     <section class="slide">
@@ -290,22 +444,20 @@ Overhead  Shared Object            Symbol
     </section>
 
     <section class="slide">
-        <h2>AARCH64 ClickBench single machine upload</h2>
+        <h2>ARM ClickBench upload</h2>
 
-        <p>AARCH64 data upload time:</p>
+        <p>ARM data single machine upload time:</p>
 
-        <code style="font-size: 18pt;">YDB row storage - 1740 seconds (29 min)
-YDB row storage (reserve shards) - 911 seconds (15 min)
+        <code style="font-size: 18pt;">YDB row storage - 911 seconds (15 min)
 Postgres - 1450 seconds (24 min)</code>
         <p></p>
     </section>
 
     <section class="slide">
-        <h2>X86-64 ClickBench single machine upload</h2>
+        <h2>X86-64 ClickBench upload</h2>
 
-        <p>X86-64 data upload time:</p>
-        <code style="font-size: 18pt;">YDB row storage - 2756 seconds (45 min)
-YDB row storage (reserve shards) - 1298 seconds (22 min)
+        <p>X86-64 data single machine upload time:</p>
+        <code style="font-size: 18pt;">YDB row storage - 1298 seconds (22 min)
 Postgres - 1730 seconds (30 min)</code>
     </section>
 
@@ -321,19 +473,19 @@ Postgres - 1730 seconds (30 min)</code>
     </section>
 
     <section class="slide">
-        <h2>AARCH64 ClickBench</h2>
+        <h2>ARM YDB/PostgreSQL ClickBench</h2>
 
         <img style="width: 85%;" src="pictures/aarch64_hits_full_postgres_ydb.png"/>
     </section>
 
     <section class="slide">
-        <h2>X86-64 ClickBench</h2>
+        <h2>X86-64 YDB/PostgreSQL ClickBench</h2>
 
         <img style="width: 85%;" src="pictures/x86_64_hits_full_postgres_ydb.png"/>
     </section>
 
     <section class="slide">
-        <h2>X86-64 JIT</h2>
+        <h2>YDB JIT</h2>
 
         <p>JIT can provide a lot of performance improvements for analytical workloads (2x - 29x performance improvement).</p>
         <p>Currently available only for X86-64.</p>
@@ -343,13 +495,13 @@ Postgres - 1730 seconds (30 min)</code>
     </section>
 
     <section class="slide">
-        <h2>X86-64 JIT ClickBench</h2>
+        <h2>YDB JIT ClickBench</h2>
 
         <img style="width: 85%;" src="pictures/x86_64_hits_full_jit.png"/>
     </section>
 
     <section class="slide">
-        <h2>X86-64 JIT ClickBench</h2>
+        <h2>YDB JIT ClickBench</h2>
 
         <code style="font-size: 14pt;">SELECT SUM(ResolutionWidth), SUM(ResolutionWidth + 1),
     SUM(ResolutionWidth + 2), SUM(ResolutionWidth + 3),
@@ -370,46 +522,19 @@ Postgres - 1730 seconds (30 min)</code>
     </section>
 
     <section class="slide">
-        <h2>ClickBench on ARM X86 cluster</h2>
+        <h2>YDB ARM/X86-64 ClickBench</h2>
 
-        <p>ARM upload time: 954 seconds.</p>
-        <p>X86 upload time: 1440 seconds.</p>
-
-        <p>ARM 50% faster.</p>
+        <img style="width: 85%;" src="pictures/arm_x86_64_hits_full.png"/>
     </section>
 
     <section class="slide">
-        <h2>ClickBench on cluster</h2>
+        <h2>ClickBench</h2>
 
-        <img style="width: 85%;" src="pictures/arm_x86_cluster_hits_full.png"/>
+        <p>Overall ARM is faster in 2-2.5 times.</p>
     </section>
 
     <section class="slide">
-        <h2>ClickBench on cluster</h2>
-
-        <code style="font-size: 14pt;">SELECT SUM(ResolutionWidth), SUM(ResolutionWidth + 1),
-    SUM(ResolutionWidth + 2), SUM(ResolutionWidth + 3),
-    SUM(ResolutionWidth + 4), SUM(ResolutionWidth + 5),
-    SUM(ResolutionWidth + 6), SUM(ResolutionWidth + 7),
-    SUM(ResolutionWidth + 8), SUM(ResolutionWidth + 9),
-    SUM(ResolutionWidth + 10), SUM(ResolutionWidth + 11),
-    SUM(ResolutionWidth + 12), SUM(ResolutionWidth + 13),
-    SUM(ResolutionWidth + 14), SUM(ResolutionWidth + 15),
-    ...
-    SUM(ResolutionWidth + 87), SUM(ResolutionWidth + 88),
-    SUM(ResolutionWidth + 89) FROM hits;</code>
-
-        <br>
-
-        <p>ARM: 31 seconds.</p>
-        <p>X86: 71 seconds.</p>
-</code>
-    </section>
-
-    <section class="slide">
-        <h2>ClickBench on cluster</h2>
-
-        <p>Overall ARM is faster in 15-25%.</p>
+        <h1 style="margin-top: 150px;">YCSB</h1>
     </section>
 
     <section class="slide">
@@ -420,9 +545,9 @@ Postgres - 1730 seconds (30 min)</code>
         <p>Each workload can be parameterized using record count, threads and target queries for each thread.</p>
         <p>Zipfian distribution.</p>
 
-        <p><a href="https://github.com/brianfrankcooper/YCSB">https://github.com/brianfrankcooper/YCSB</a></p></p>
-        <p><a href="https://courses.cs.duke.edu/fall13/compsci590.4/838-CloudPapers/ycsb.pdf">Benchmarking Cloud Serving Systems with YCSB</a></p></p>
-        <p><a href="https://en.wikipedia.org/wiki/Zipf%27s_law">Zipfian distribution</a></p></p>
+        <p><a href="https://github.com/brianfrankcooper/YCSB">https://github.com/brianfrankcooper/YCSB</a></p>
+        <p><a href="https://courses.cs.duke.edu/fall13/compsci590.4/838-CloudPapers/ycsb.pdf">Benchmarking Cloud Serving Systems with YCSB</a></p>
+        <p><a href="https://en.wikipedia.org/wiki/Zipf%27s_law">Zipfian distribution</a></p>
     </section>
 
     <section class="slide">
@@ -439,188 +564,101 @@ Postgres - 1730 seconds (30 min)</code>
     <section class="slide">
         <h2>YCSB</h2>
 
-        <p>Datasets: 10M (10 GB), 100M (100 GB), 300M (300 Gb).</p>
+        <p>Datasets: 100M (100 GB), 300M (300 Gb).</p>
         <p>Workloads: A, B, C, D, E, F.</p>
-        <p>Threads: 1, 64, 128, 256, 512, 1024.</p>
+        <p>Threads: 512, 1024, 2048, 4096, 8192.</p>
     </section>
 
     <section class="slide">
-        <h2>YCSB</h2>
+        <h2>YCSB single node upload time</h2>
 
-        <p>ARM 10m, 100m, 300m upload time: 107, 1311, 3945 seconds.</p>
-        <p>X86 10m, 100m, 300m upload time: 148, 1839, 6750 seconds.</p>
-
-        <p>Almost linear scaling with increased amount of data.</p>
-        <p>ARM is 30-50% faster.</p>
+        <p>ARM upload time 100m: 2569 seconds.</p>
+        <p>X86-64 upload time 100m: 3725 seconds.</p>
+        <p>ARM is 50% faster.</p>
     </section>
 
     <section class="slide">
-        <h2>YCSB 10m</h2>
+        <h2>YCSB 100m single node</h2>
 
         <code style="font-size: 20pt;">ydb -p test_db_cluster scheme describe usertable
 --stats --partition-stats --permissions</code>
 
         <p></p>
 
-        <code style="font-size: 16pt;">Table stats:
-Partitions count: 50
-Approximate number of rows: 10000000
-Approximate size of table: 10.65 Gb</code>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 10m A</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_10m_workload_A.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 10m B</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_10m_workload_B.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 10m C</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_10m_workload_C.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 10m E</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_10m_workload_E.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 10m F</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_10m_workload_F.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 10m</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_10m.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 100m</h2>
-
-        <code style="font-size: 20pt;">ydb -p test_db_cluster scheme describe usertable
---stats --partition-stats --permissions</code>
-
-        <p></p>
-
-        <code style="font-size: 16pt;">Table stats:
+        <code style="font-size: 20pt;">Table stats:
 Partitions count: 80
 Approximate number of rows: 100000000
 Approximate size of table: 106.14 Gb</code>
     </section>
 
     <section class="slide">
-        <h2>YCSB 100m A</h2>
+        <h2>YCSB 100m A single node</h2>
 
-        <img style="width: 85%;" src="pictures/ycsb_100m_workload_A.png"/>
+        <img style="width: 85%;" src="pictures/arm_x86_single_node_ycsb_a.png"/>
     </section>
 
     <section class="slide">
-        <h2>YCSB 100m B</h2>
+        <h2>YCSB 100m C single node</h2>
 
-        <img style="width: 85%;" src="pictures/ycsb_100m_workload_B.png"/>
+        <img style="width: 85%;" src="pictures/arm_x86_single_node_ycsb_c.png"/>
     </section>
 
     <section class="slide">
-        <h2>YCSB 100m C</h2>
+        <h2>YCSB 100m single node summary</h2>
 
-        <img style="width: 85%;" src="pictures/ycsb_100m_workload_C.png"/>
+        <img style="width: 85%;" src="pictures/arm_x86_single_node_ycsb_summary.png"/>
     </section>
 
     <section class="slide">
-        <h2>YCSB 100m E</h2>
+        <h2>YCSB cluster upload time</h2>
 
-        <img style="width: 85%;" src="pictures/ycsb_100m_workload_E.png"/>
+        <p>ARM upload time 300m: 4991 seconds.</p>
+        <p>X86-64 upload time 300m: 6285 seconds.</p>
+        <p>ARM is 25% faster.</p>
     </section>
 
     <section class="slide">
-        <h2>YCSB 100m F</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_100m_workload_F.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 100m</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_100m.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 300m</h2>
+        <h2>YCSB 300m cluster</h2>
 
         <code style="font-size: 20pt;">ydb -p test_db_cluster scheme describe usertable
 --stats --partition-stats --permissions</code>
 
         <p></p>
 
-        <code style="font-size: 16pt;">Table stats:
+        <code style="font-size: 20pt;">Table stats:
 Partitions count: 229
 Approximate number of rows: 300000400
 Approximate size of table: 318.61 Gb</code>
     </section>
 
     <section class="slide">
-        <h2>YCSB 300m A</h2>
+        <h2>YCSB 300m A cluster</h2>
 
-        <img style="width: 85%;" src="pictures/ycsb_300m_workload_A.png"/>
+        <img style="width: 85%;" src="pictures/arm_x86_cluster_ycsb_a.png"/>
     </section>
 
     <section class="slide">
-        <h2>YCSB 300m B</h2>
+        <h2>YCSB 300m C cluster</h2>
 
-        <img style="width: 85%;" src="pictures/ycsb_300m_workload_B.png"/>
+        <img style="width: 85%;" src="pictures/arm_x86_cluster_ycsb_c.png"/>
     </section>
 
     <section class="slide">
-        <h2>YCSB 300m C</h2>
+        <h2>YCSB 300m cluster summary</h2>
 
-        <img style="width: 85%;" src="pictures/ycsb_300m_workload_C.png"/>
+        <img style="width: 85%;" src="pictures/arm_x86_cluster_ycsb_summary.png"/>
     </section>
 
     <section class="slide">
-        <h2>YCSB 300m E</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_300m_workload_E.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 300m F</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_300m_workload_F.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 300m</h2>
-
-        <img style="width: 85%;" src="pictures/ycsb_300m.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB 300m</h2>
+        <h2>YCSB</h2>
 
         <p>Throughput increases with increase of data size because of partitioning.</p>
-        <p>ARM does not have any scalability issues, only CPU underutilization.</p>
+        <p>ARM is 10-30% faster.</p>
+        <p>ARM configuration is much more sensitive.</p>
     </section>
 
     <section class="slide">
-        <h2>YCSB ARM Workload A Flame Graph</h2>
-
-        <img style="width: 100%;" src="pictures/ycsb_arm_100m_workload_a_framegraph.png"/>
-    </section>
-
-    <section class="slide">
-        <h2>YCSB ARM Workload A Flame Graph</h2>
-
-        <img style="width: 100%;" src="pictures/ycsb_arm_100m_workload_a_actor_system_flamegraph.png"/>
+        <h1 style="margin-top: 150px;">TPC-C</h1>
     </section>
 
     <section class="slide">
@@ -650,47 +688,29 @@ Approximate size of table: 318.61 Gb</code>
     <section class="slide">
         <h2>TPC-C</h2>
 
-        <p>ARM 1000, 2500 warehouses upload time: 592, 1361 seconds.</p>
-        <p>X86 1000, 2500 warehouses upload time: 1860, 2591 seconds.</p>
-    </section>
-
-    <section class="slide">
-        <h2>TPC-C</h2>
-
-        <p>ARM</p>
-        <p>1000 warehouses TPM-C 12186.</p>
-        <p>2500 warehouses TPM-C 24510.</p>
-
-        <p>X86</p>
-        <p>1000 warehouses TPM-C 12093.</p>
-        <p>2500 warehouses TPM-C 23910.</p>
-
-        <p>In all cases efficiency higher than 97%.</p>
+        <p>ARM uploads data 2-3 times faster.</p>
+        <p>No significant differences in TPM-C on X86-64 and ARM for 10000-15000 warehouses.</p>
     </section>
 
     <section class="slide">
         <h2>Next steps</h2>
 
-        <p>Testing:</p>
-        <p>1. Run bigger version of TPCC.</p>
-
         <p>Performance improvements:</p>
 
-        <p>1. Improve performance for low-latency KV benchmarks (YCSB, TPCC)</p>
-        <p>2. Enable JIT for AARCH64.</p>
-        <p>3. AARCH64 tune low-level libraries (ChaCha encryption, XXH3 hash, etc.).</p>
+        <p>1. Improve performance of ActorSystem for low-latency KV benchmarks (YCSB, TPC-C).</p>
+        <p>2. Enable JIT for ARM.</p>
+        <p>3. ARM tune low-level libraries (ChaCha encryption, XXH3 hash, etc.).</p>
     </section>
 
     <section class="slide">
         <h2>Conclusion</h2>
 
-        <p>Most problems with ARM optimizations are different cost-model in comparison with X86 (virtual functions, atomics).</p>
-        <p>Some things work great on X86, will not work on ARM or will be slow.</p>
+        <p>Most problems with ARM optimizations are different cost-model in comparison with X86-64 (virtual functions, atomics).</p>
+        <p>Some things work great on X86-64, will not work on ARM or will be slow.</p>
         <p>Low-level libraries need to be optimized.</p>
     </section>
 
-    <section class="slide">
-        <h2>Questions?</h2>
+    <section class="slide" id="back" style="background: #FFF url('pictures/back.png') no-repeat; background-size: 100%;">
     </section>
 
     <div class="progress"></div>
