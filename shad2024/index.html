@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>ClickHouse</title>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="shower/themes/yandex/styles/screen-16x9.css">
+
+    <style type="text/css">
+        code { display: block; white-space: pre; background-color: #EEE; }
+        p.cloud { text-align: center; line-height: 1.5; }
+        p.cloud span { font-size: 13pt; color: gray; padding: 0 20px 0 20px; white-space: nowrap; }
+   </style>
+</head>
+<body class="shower list">
+    <header class="caption">
+        <h1>ClickHouse</h1>
+    </header>
+
+    <section class="slide" id="cover">
+        <h1 style="margin-top: 150px;">ClickHouse</h1>
+    </section>
+
+    <section class="slide">
+        <h2>About me</h2>
+
+        <p>Maksim, developer of ClickHouse.</p>
+        <p><a href="https://maksimkita.com/">https://maksimkita.com/</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>Plan</h2>
+
+        <p>1. Introduction.</p>
+        <p>2. High Level Source Code Overview.</p>
+        <p>3. High Level System Architecture.</p>
+        <p>4. OpenSource community.</p>
+    </section>
+
+    <section class="slide">
+        <h1 style="margin-top: 150px;">Introduction</h1>
+    </section>
+
+    <section class="slide">
+        <h2>Introduction</h2>
+
+        <p>ClickHouse is an open-source, high performance columnar OLAP database management system for real-time analytics using SQL.</p>
+
+        <p><a href="https://clickhouse.com/">https://clickhouse.com/</a></p>
+        <p><a href="https://clickhouse.com/docs/en/intro">https://clickhouse.com/docs/en/intro</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>Development</h2>
+
+        <p>All development of public version is on GitHub.</p>
+
+        <p><a href="https://github.com/ClickHouse/ClickHouse">https://github.com/ClickHouse/ClickHouse</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>Repository</h2>
+
+        <p>ClickHouse as of December 24 2021.</p>
+        <p>21200 stars.</p>
+        <p>4200 forks.</p>
+        <p>867 contributors.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Repository</h2>
+
+        <p>ClickHouse as of May 14 2024.</p>
+        <p>34600 stars.</p>
+        <p>6500 forks.</p>
+        <p>1475 contributors.</p>
+    </section>
+
+    <section class="slide">
+        <h1 style="margin-top: 150px;">High Level Source Code Overview</h1>
+    </section>
+
+    <section class="slide">
+        <h2>Core</h2>
+
+        <p>src/Common - Common functions, data structures, utilities mostly ClickHouse unrelated</p>
+        <p>src/IO - High-performance IO library</p>
+        <p>src/Compression - Different compression codecs, utilities, implemented on top of IO</p>
+        <p>src/Columns - Columns</p>
+        <p>src/DataTypes - Data types</p>
+    </section>
+
+    <section class="slide">
+        <h2>Core</h2>
+
+        <p>src/Core - Core functions, data structures, utilities mostly ClickHouse related</p>
+        <p>src/Formats - Different formats</p>
+    </section>
+
+    <section class="slide">
+        <h2>Functions</h2>
+
+        <p>src/Functions - Ordinary functions, ordinary functions factory</p>
+        <p>src/AggregateFunctions - Aggregate functions, aggregate functions factory and related data structures</p>
+        <p>src/TableFunctions - Table functions</p>
+        <p>Table function <b>file</b> example:</p>
+        <code>SELECT * FROM file('test_file.txt')</code>
+    </section>
+
+    <section class="slide">
+        <h2>Query planning and execution</h2>
+
+        <p>src/Parsers - Lexer and parser</p>
+        <p>src/Analyzer - Query analysis infrastructure</p>
+        <p>src/Planner - Query planning infrastructure</p>
+        <p>src/Interpreters - Interpeters for different queries</p>
+        <p>src/Processors/QueryPlan - Logical query plan</p>
+        <p>src/Processors/QueryPlan/Optimizations - Logical query plan optimizations</p>
+        <p>src/Processors - Physical query plan</p>
+        <p>src/Processors/Executors/ - Physical query plan executors</p>
+        <p>src/QueryPipeline - Physical query plan utilities</p>
+    </section>
+
+    <section class="slide">
+        <h2>Storage</h2>
+
+        <p>src/Databases - Databases (DatabaseAtomic)</p>
+        <p>src/Dictionaries - Dictionaries</p>
+        <p>src/Disks - Disks, Object storages, Storage policies, Cache</p>
+        <p>src/Storages - Storages (StorageMergeTree, StorageReplicatedMergeTree, StorageDistributed)</p>
+    </section>
+
+    <section class="slide">
+        <h2>Access, backups and coordination</h2>
+
+        <p>src/Access - Access management</p>
+        <p>src/Backups - Backups</p>
+        <p>src/Coordination - ClickHouseKeeper core and ZooKeeper utilities</p>
+    </section>
+
+    <section class="slide">
+        <h2>Server and client</h2>
+
+        <p>src/Loggers - Logging setup and utilities</p>
+        <p>src/Daemon - Base code for all daemons (setup, logging, signal handling)</p>
+        <p>src/Bridge, src/BridgeHelper - External bridges (ODBC/some Dictionaries)</p>
+        <p>src/Client - Client, CLI utilities</p>
+        <p>src/Server - Server</p>
+    </section>
+
+    <section class="slide">
+        <h1 style="margin-top: 150px;">High Level System Architecture</h1>
+    </section>
+
+    <section class="slide">
+        <h2>ClickHouse Architecture</h2>
+
+        <p>Column-oriented storage &mdash; data is physically stored by columns.</p>
+        <p>Only necessary columns are read from disk during query.</p>
+        <p>Better compression because of data locality.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Vectorized Query Execution</h2>
+
+        <p>Vectorized query execution &mdash; data is processed in blocks. Block contains multiple columns with <b>max_block_size</b> rows (65536 by default).</p>
+        <p>Each column is stored as a vector of primitive data types or their combination:</p>
+        <p>1. Better utilization for CPU caches and pipeline.</p>
+        <p>2. Data is processed using SIMD instructions.</p>
+    </section>
+
+    <section class="slide">
+        <h2>ClickHouse Columns</h2>
+
+        <p><b>Numeric</b> columns &mdash; <b>PODArray</b>. Almost the same as <b>std::vector</b>.</p>
+        <p>1. Use our <b>Allocator</b> with support of <b>realloc</b>.</p>
+        <p>2. No additional <b>memset</b> during <b>resize</b>.</p>
+        <p>3. Padding with 15 bytes at the end.</p>
+    </section>
+
+    <section class="slide">
+        <h2>ClickHouse Columns</h2>
+
+        <p><b>Nullable</b> columns contain data column and UInt8 column bitmask is element null.</p>
+        <p><b>Array</b> columns contain data column and UInt64 column with offsets.</p>
+        <p><b>Const</b> column contain 1 constant value.</p>
+    </section>
+
+    <section class="slide">
+        <h2>ClickHouse Columns</h2>
+
+        <p>Main class is <b>IColumn</b>.</p>
+        <p>Polymorphic type that can be part of interfaces.</p>
+        <p>Declares methods that all concrete column types need to support.</p>
+        <p>In most of the functions unwrapped to concrete column type.</p>
+
+        <code style="font-size: 10pt;">class IColumn
+{
+    ...
+
+    [[nodiscard]] virtual Ptr filter(const Filter & filt, ssize_t result_size_hint) const = 0;
+
+    [[nodiscard]] virtual Ptr permute(const Permutation & perm, size_t limit) const = 0;
+
+    virtual void insertFrom(const IColumn & src, size_t n);
+
+    virtual void insertRangeFrom(const IColumn & src, size_t start, size_t length) = 0;
+
+    ...
+}
+</code>
+    </section>
+
+    <section class="slide">
+        <h2>Storage</h2>
+
+        <p>Main storage MergeTree. Simillar to LSM, but simpler.</p>
+        <p>Data is split into partitions (by default 1 partition) by PARTITION BY expression.</p>
+        <p>Partition is set of parts.</p>
+        <p>By default table contains only single partition.</p>
+
+        <p>
+            <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree">
+                https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree
+            </a>
+        </p>
+    </section>
+
+    <section class="slide">
+        <h2>MergeTree</h2>
+
+        <p>Part is immutable data structure that contains compressed columns, skipping indexes, statistics, projections.</p>
+        <p>Data is split into granules.</p>
+        <p>Data ordered by PRIMARY KEY expression.</p>
+        <p>Primary key sparse index is build on top of PRIMARY KEY for each granule.</p>
+        <P>Periodically parts within partition merged into bigger parts (merge operation).</P>
+
+        <p>
+            <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#mergetree-data-storage">
+                https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#mergetree-data-storage
+            </a>
+        </p>
+    </section>
+
+    <section class="slide">
+        <h2>MergeTree additional features</h2>
+
+        <p>1. Skipping indexes.</p>
+        <p>2. Projections.</p>
+
+        <p>
+            <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-data_skipping-indexes">
+                https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-data_skipping-indexes
+            </a>
+        </p>
+        <p>
+            <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#projections">
+                https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#projections
+            </a>
+        </p>
+    </section>
+
+    <section class="slide">
+        <h2>MergeTree disks integration</h2>
+
+        <p>Specify different disks (hot/cold) and different disk policies.</p>
+        <p>Example: hot data in local disk, cold data in object storage disk (S3).</p>
+
+        <p>
+            <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#disk-types">
+                https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#disk-types
+            </a>
+        </p>
+        <p>
+            <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-multiple-volumes">
+                https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-multiple-volumes
+            </a>
+        </p>
+    </section>
+
+    <section class="slide">
+        <h2>ReplicatedMergeTree</h2>
+
+        <p>Build on top of MergeTree.</p>
+        <p>Providers multi-master eventually consistent replication.</p>
+        <p>Uses ZooKeeper/ClickHouseKeeper for coordination.</p>
+
+        <p>
+            <a href="https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication">
+                https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
+            </a>
+        </p>
+    </section>
+
+    <section class="slide">
+        <h2>Distributed</h2>
+
+        <p>During write - splits data according to sharding key between multiple shards.</p>
+        <p>During read - send queries to shards, shards process data to intermediate stage and results are merged on initiator.</p>
+        <p>Optimizations for different query types that can be processed on shards without merge on initiator.</p>
+
+        <p>
+            <a href="https://clickhouse.com/docs/en/engines/table-engines/special/distributed">
+                https://clickhouse.com/docs/en/engines/table-engines/special/distributed
+            </a>
+        </p>
+    </section>
+
+    <section class="slide">
+        <h2>Query execution</h2>
+
+        <p>Query execution is divided into multiple stages:</p>
+
+        <p>1. Query parsing (src/Parsers).</p>
+        <p>2. Query analysis (src/Analyzer).</p>
+        <p>3. Build a logical query plan (src/Planner).</p>
+        <p>4. Optimize logical query plan (src/QueryPlan/Optimizations).</p>
+        <p>5. Build a physical query plan (src/Processors).</p>
+        <p>6. Optimize physical query plan (src/Processors).</p>
+        <p>7. Execute physical query plan (src/Processors/Executors).</p>
+    </section>
+
+    <section class="slide">
+        <h1 style="margin-top: 150px;">OpenSource community</h1>
+    </section>
+
+    <section class="slide">
+        <h2>Pull request statistics 2021</h2>
+
+        <p>Core engineering team 15 people.</p>
+        <p>400 pull requests per month.</p>
+        <p>4 big pull requests per month (More than 5k LOC).</p>
+        <p>95 percent of external pull requests merged.</p>
+        <p>46 percent of new code is external.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Releases</h2>
+
+        <p>Release each month.</p>
+        <p>Include tons of improvement, bug fixes, new features.</p>
+
+        <p>
+            <a href="https://clickhouse.com/docs/en/whats-new/changelog/">
+                https://clickhouse.com/docs/en/whats-new/changelog/
+            </a>
+        </p>
+    </section>
+
+    <section class="slide">
+        <h2>OpenSource community 2021</h2>
+
+        <p>46 percent of new code is from external contributors.</p>
+        <p>Contributions include not only pull requests:</p>
+        <p>1. Translation of documentation.</p>
+        <p>2. Drivers for JDBC, ODBC, Go.</p>
+        <p>3. Answers on question GitHub issues.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Interaction with community</h2>
+
+        <p>1. Pull requests review.</p>
+        <p>2. Managing issues on GitHub.</p>
+        <p>3. Public roadmap.</p>
+        <p>4. Answering questions on GitHub, Google groups, Telegram chats.</p>
+        <p>5. Meetups (Release meetups, Community meetups).</p>
+    </section>
+
+    <section class="slide">
+        <h2>Pull requests</h2>
+
+        <img style="width: 80%;" src="pictures/external_pull_requests.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>Pull requests authors</h2>
+
+        <img style="width: 80%;" src="pictures/external_authors.png"/>
+    </section>
+
+    <section class="slide">
+        <h2>Pull request review</h2>
+
+        <p>1. Everyone from core team can merge.</p>
+        <p>2. Single code reviewer is enought, big pull requests can be discussed as whole team.</p>
+        <p>3. Robust continious integration pipeline.</p>
+        <p>4. All author commits are included.</p>
+        <p>5. Keep small count of code-review iterations.</p>
+        <p>6. If pull request is abandoned independently merge it, author contribution is appreciated.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Continious integration</h2>
+
+        <p>1. Unit, functional, integation tests.</p>
+        <p>2. Sanitizers (MSan, UBSan, Tsan, Address).</p>
+        <p>3. Static linters (clang-tidy, clang-format).</p>
+        <p>4. Performance tests.</p>
+        <p>5. Fuzzers.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Contibution process</h2>
+
+        <p>1. Implement some feature needed for your ClickHouse setup.</p>
+        <p>2. Experience on production project.</p>
+        <p>3. Implement some interesting task from our roadmap (public available).</p>
+        <p>4. Feature can be implemented without a lot of codebase changes.
+            For example adding function, aggregate function, change parser.</p>
+        <p>5. Easy to find task to work.</p>
+    </section>
+
+    <section class="slide">
+        <h2>Examples</h2>
+        <img style="width: 80%;" src="pictures/projections_pull_request.png">
+    </section>
+
+    <section class="slide">
+        <h2>Examples</h2>
+        <img style="width: 80%;" src="pictures/four_letter_commands_pull_request.png">
+    </section>
+
+    <section class="slide">
+        <h2>Examples</h2>
+        <img style="width: 80%;" src="pictures/azure_pull_request.png">
+    </section>
+
+    <section class="slide">
+        <h2>Additional information</h2>
+
+        <p><a href="https://www.youtube.com/watch?v=tNzdrw1L1Xk">Guide to your first contribution to ClickHouse</p>
+        <p><a href="https://www.youtube.com/watch?v=zhrOYQpgvkk">Talk about Modern SQL</p>
+        <p><a href="https://www.youtube.com/watch?v=H_pUmU-uobI">Talk about JIT in ClickHouse on C++ Russia 2021</p>
+        <p><a href="https://www.youtube.com/watch?v=KedCUDZE9N4">Talk about ClickHouse performance optimization practices at C++ Russia 2022</p>
+    </section>
+
+    <section class="slide">
+        <h2>Additional information</h2>
+
+        <p><a href="https://github.com/ClickHouse/ClickHouse">https://github.com/ClickHouse/ClickHouse</a></p>
+        <p><a href="https://www.youtube.com/c/clickhousedb">https://www.youtube.com/c/clickhousedb</a></p>
+        <p><a href="https://www.youtube.com/c/clickhousedb">https://www.youtube.com/c/clickhousedb</a></p>
+        <p><a href="https://clickhouse.com/docs/en/intro">https://clickhouse.com/docs/en/intro</a></p>
+    </section>
+
+    <section class="slide">
+        <h2>Questions?</h2>
+    </section>
+
+    <div class="progress"></div>
+    <script src="shower/shower.min.js"></script>
+
+    <!--Video plugin-->
+    <link rel="stylesheet" href="shower/shower-video.css">
+    <script src="shower/shower-video.js"></script>
+    <!--/Video plugin-->
+</body>
+</html>
